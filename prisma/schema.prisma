@@ -14,7 +14,6 @@ model User {
   password      String
   name          String
   createdAt     DateTime       @default(now())
-
   announcements Announcement[]
   refreshTokens RefreshToken[]
 }
@@ -25,7 +24,7 @@ model RefreshToken {
   userId    Int
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
 }
@@ -36,11 +35,12 @@ model Announcement {
   description String
   price       Float
   category    String
+  imageUrl    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   userId      Int
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
 }

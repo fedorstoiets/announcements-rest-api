@@ -1,282 +1,251 @@
 # Announcements REST API
 
-A TypeScript REST API for an announcements board. The project implements user authentication with JWT access/refresh tokens, refresh-token rotation, protected routes, announcement CRUD, ownership checks, pagination, search, sorting, validation, PostgreSQL persistence through Prisma, and OpenAPI/Swagger documentation.
+Production-ready REST API for an announcements board, built with **Node.js, Express, TypeScript, PostgreSQL, Prisma, JWT, OpenAPI, Pino, Multer, and Cloudinary**.
 
-## Author
+**Author:** Fedor Stoietskyi
 
-**Fedor Stoietskyi**
+---
 
-## Technology Stack
+## Overview
 
-- Node.js
-- Express 5
-- TypeScript
-- PostgreSQL
-- Prisma ORM
-- Zod
-- JSON Web Tokens (`jsonwebtoken`)
-- bcrypt
-- OpenAPI / Swagger UI
+The application allows users to register, authenticate, and manage their own announcements through a JSON REST API.
 
-## Main Features
+Anonymous users can:
 
-### Authentication
+- browse announcements;
+- search announcements by title;
+- sort announcements by creation date;
+- view a single announcement.
 
-- User registration
-- bcrypt password hashing
-- Login with a generic `Invalid credentials` response for both invalid username and invalid password
-- JWT access token valid for 15 minutes
-- JWT refresh token valid for 7 days
-- Refresh-token persistence in PostgreSQL
-- Refresh-token rotation: a refresh token becomes invalid immediately after it is used
-- Protected logout
-- Protected current-user profile endpoint
-- Password is never returned in API responses
+Authenticated users can additionally:
 
-### Announcements
+- create announcements;
+- upload an optional announcement image;
+- update their own announcements;
+- replace/add an image while updating;
+- delete their own announcements;
+- refresh JWT credentials;
+- log out;
+- retrieve their profile.
 
-- Public list of announcements
-- Public announcement details
-- Authenticated announcement creation
-- Authenticated partial update
-- Authenticated deletion
-- Ownership protection: only the author can update or delete an announcement
-- Author information included in announcement responses
+The project also includes production-oriented security, request logging, API documentation, image storage, database migrations, and automated tests.
 
-### List Query Features
+---
 
-`GET /announcements` supports:
+## Production Upgrade
 
-- `search` — case-insensitive substring search in `title`
-- `sort=newest|oldest`
-- `page` — positive page number
-- 10 announcements per page
+The original REST API was extended with the following production features.
 
-The response contains both `data` and:
+### Security
+
+- **Helmet** is enabled globally to add secure HTTP headers.
+- **CORS** accepts browser requests only from origins listed in `ALLOWED_ORIGINS`.
+- **Rate limiting** is applied to all `/auth` routes.
+- Maximum authentication traffic: **10 requests per IP per 15 minutes**.
+- Rate-limit response:
 
 ```json
 {
-  "pagination": {
-    "total": 23,
-    "page": 2,
-    "totalPages": 3,
-    "perPage": 10
-  }
+  "message": "Too many requests, please try again later"
 }
 ```
+
+### Logging
+
+The project uses:
+
+- `pino`
+- `pino-http`
+
+Every HTTP request is logged automatically.
+
+Important application events are also logged, including:
+
+- new user registration;
+- successful login;
+- announcement creation;
+- announcement photo upload.
+
+### Announcement Images
+
+`POST /announcements` and `PATCH /announcements/:id` support:
+
+```text
+multipart/form-data
+```
+
+The optional image field is:
+
+```text
+image
+```
+
+Upload flow:
+
+1. Multer temporarily stores the image in `uploads/`.
+2. The image is uploaded to Cloudinary.
+3. The temporary local file is deleted.
+4. Only the Cloudinary URL is saved to PostgreSQL as `imageUrl`.
+
+Announcements can still be created without an image.
+
+### Testing
+
+The project uses **Vitest**.
+
+Included automated tests verify:
+
+- password hashing;
+- correct password verification and rejection of invalid passwords;
+- JWT access/refresh token lifetimes.
+
+A production verification script also checks the complete application flow, including Helmet, CORS, authentication, rate limiting, Prisma, Cloudinary, OpenAPI, and temporary-file cleanup.
+
+---
+
+## Tech Stack
+
+| Area | Technology |
+|---|---|
+| Runtime | Node.js |
+| Language | TypeScript |
+| Web framework | Express |
+| Database | PostgreSQL |
+| ORM | Prisma 7 |
+| PostgreSQL adapter | `@prisma/adapter-pg` |
+| Validation | Zod |
+| Authentication | JWT |
+| Password hashing | bcrypt |
+| Security headers | Helmet |
+| CORS | cors |
+| Rate limiting | express-rate-limit |
+| Logging | Pino + pino-http |
+| File upload | Multer |
+| Image hosting | Cloudinary |
+| API documentation | OpenAPI / Swagger UI |
+| Testing | Vitest |
+
+---
 
 ## Project Structure
 
 ```text
 .
 ├── prisma/
-│   ├── migrations/                  # Prisma SQL migration history
-│   ├── client.ts                    # Prisma Client initialization
-│   └── schema.prisma                # User, RefreshToken, Announcement models
+│   ├── migrations/
+│   ├── client.ts
+│   └── schema.prisma
+│
+├── scripts/
+│   └── verify-production.ts
 │
 ├── src/
 │   ├── controllers/
-│   │   ├── auth.controller.ts       # Register, login, refresh, logout, /me logic
+│   │   ├── auth.controller.ts
 │   │   └── announcements.controller.ts
-│   │                                # Announcement CRUD, search, sort, pagination,
-│   │                                # ownership checks
 │   │
 │   ├── middleware/
-│   │   ├── authenticate.ts          # Bearer-token verification and req.user
-│   │   └── validate.ts              # Zod body / params / query validation
+│   │   ├── authenticate.ts
+│   │   ├── upload.ts
+│   │   └── validate.ts
 │   │
 │   ├── routes/
-│   │   ├── auth.routes.ts           # /auth route definitions
-│   │   └── announcements.routes.ts  # /announcements route definitions
+│   │   ├── auth.routes.ts
+│   │   └── announcements.routes.ts
+│   │
+│   ├── utils/
+│   │   └── auth.ts
 │   │
 │   ├── validators/
-│   │   ├── auth.validator.ts        # Auth request validation schemas
+│   │   ├── auth.validator.ts
 │   │   └── announcements.validator.ts
-│   │                                # Announcement and query validation schemas
 │   │
-│   └── openapi.ts                   # OpenAPI schemas and route documentation
+│   ├── logger.ts
+│   └── openapi.ts
 │
 ├── tests/
-│   └── final_test.ps1               # End-to-end verification script
+│   └── auth.test.ts
 │
-├── app.ts                           # Express application, routes, Swagger, errors
-├── prisma.config.ts                 # Prisma configuration
-├── tsconfig.json                    # TypeScript configuration
+├── uploads/
+│   └── .gitkeep
+│
+├── app.ts
+├── prisma.config.ts
+├── vitest.config.ts
+├── tsconfig.json
 ├── package.json
 ├── .env.example
 └── README.md
 ```
 
-## Database Models
+---
 
-### User
+## Environment Variables
 
-Stores account information and relationships to announcements and refresh tokens.
+Create a local `.env` file in the project root.
 
-Important fields:
+Use `.env.example` as the template:
 
-- `id`
-- `username` — unique
-- `email` — unique
-- `password` — bcrypt hash only
-- `name`
-- `createdAt`
-
-### RefreshToken
-
-Stores active refresh tokens associated with users.
-
-Important fields:
-
-- `token` — unique
-- `userId`
-- `createdAt`
-
-### Announcement
-
-Stores announcement data.
-
-Important fields:
-
-- `title`
-- `description`
-- `price`
-- `category`
-- `userId`
-- `createdAt`
-- `updatedAt`
-
-`updatedAt` is maintained automatically by Prisma.
-
-## API Endpoints
-
-### Authentication
-
-| Method | Endpoint | Authentication | Description |
-|---|---|---:|---|
-| POST | `/auth/register` | No | Register a user and return access + refresh tokens |
-| POST | `/auth/login` | No | Authenticate and return a new token pair |
-| POST | `/auth/refresh` | No | Rotate the refresh token and return a new token pair |
-| POST | `/auth/logout` | Yes | Invalidate the current user's refresh token |
-| GET | `/auth/me` | Yes | Return the authenticated user's profile |
-
-### Announcements
-
-| Method | Endpoint | Authentication | Description |
-|---|---|---:|---|
-| GET | `/announcements` | No | List announcements with pagination/search/sorting |
-| GET | `/announcements/:id` | No | Get one announcement |
-| POST | `/announcements` | Yes | Create an announcement |
-| PATCH | `/announcements/:id` | Yes + owner | Partially update an announcement |
-| DELETE | `/announcements/:id` | Yes + owner | Delete an announcement |
-
-## Validation
-
-### Registration
-
-- `username`: 3–30 characters
-- `email`: valid email
-- `password`: at least 6 characters
-- `name`: at least 2 characters
-
-### Announcement
-
-- `title`: 5–50 characters
-- `description`: at least 10 characters
-- `price`: positive number
-- `category`: `sale`, `service`, `job`, or `other`
-
-For `PATCH`, all announcement fields are optional, but an empty object is rejected.
-
-## Authentication Flow
-
-### Registration / Login
-
-Successful registration and login return:
-
-```json
-{
-  "user": {
-    "id": 1,
-    "username": "fedor",
-    "email": "fedor@example.com",
-    "name": "Fedor"
-  },
-  "accessToken": "...",
-  "refreshToken": "..."
-}
+```env
+DATABASE_URL=
+JWT_SECRET=
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
 
-Protected routes use:
+### Important
 
-```http
-Authorization: Bearer <accessToken>
-```
+`.env` contains private credentials and **must never be committed to GitHub**.
 
-### Refresh-Token Rotation
+The repository contains only `.env.example`, with variable names and safe example values.
 
-`POST /auth/refresh` verifies both:
+---
 
-1. the JWT signature;
-2. that the supplied refresh token still exists in the database.
+## Installation
 
-After a successful refresh, the old token is deleted and a new refresh token is stored. Reusing the previous refresh token therefore returns `401`.
-
-## Ownership Protection
-
-The author of an announcement is always taken from:
-
-```ts
-req.user.sub
-```
-
-The client cannot assign `userId` manually.
-
-Before `PATCH` or `DELETE`, the server compares the announcement's `userId` with the authenticated user's ID.
-
-A non-owner receives:
-
-```json
-{
-  "message": "Access denied"
-}
-```
-
-with HTTP status `403`.
-
-## Setup
-
-### 1. Install dependencies
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-### 2. Configure environment variables
-
-Copy `.env.example` to `.env` and provide:
-
-```env
-DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/announcements
-JWT_SECRET=YOUR_LONG_SECRET
-```
-
-> `.env` contains secrets and must not be committed to GitHub.
-
-### 3. Apply database migrations
+Generate the Prisma client:
 
 ```bash
-npx prisma migrate dev
 npx prisma generate
 ```
 
-### 4. Run the application
+Check migration status:
+
+```bash
+npx prisma migrate status
+```
+
+If starting with an empty database, apply migrations:
+
+```bash
+npx prisma migrate deploy
+```
+
+---
+
+## Running the API
+
+Development mode:
 
 ```bash
 npm run dev
 ```
 
-The API runs at:
+Normal start:
+
+```bash
+npm start
+```
+
+By default, the API runs on:
 
 ```text
 http://localhost:3000
@@ -288,97 +257,559 @@ Swagger UI:
 http://localhost:3000/api-docs
 ```
 
-## OpenAPI / Swagger
+---
 
-All authentication and announcement routes are documented through the OpenAPI registry.
+## Available NPM Scripts
 
-Protected endpoints use the registered `bearerAuth` security scheme and are displayed with authorization support in Swagger UI.
-
-Open:
-
-```text
-http://localhost:3000/api-docs
+```bash
+npm run dev
 ```
 
-to inspect and test the API interactively.
+Starts the application using `tsx watch`.
+
+```bash
+npm start
+```
+
+Starts the application normally.
+
+```bash
+npm run typecheck
+```
+
+Runs the TypeScript compiler without emitting files.
+
+```bash
+npm test
+```
+
+Runs Vitest in watch mode.
+
+```bash
+npm run test:run
+```
+
+Runs the complete Vitest suite once.
+
+```bash
+npm run verify:production
+```
+
+Runs the integrated production verification suite.
+
+```bash
+npm run prisma:generate
+```
+
+Regenerates the Prisma client.
+
+---
+
+# API Reference
+
+## Authentication
+
+### Register
+
+```http
+POST /auth/register
+```
+
+JSON body:
+
+```json
+{
+  "username": "john_smith",
+  "email": "john@example.com",
+  "password": "StrongPassword123!",
+  "name": "John Smith"
+}
+```
+
+Successful response:
+
+```text
+201 Created
+```
+
+The password is stored only as a bcrypt hash and is never returned in an API response.
+
+---
+
+### Login
+
+```http
+POST /auth/login
+```
+
+JSON body:
+
+```json
+{
+  "username": "john_smith",
+  "password": "StrongPassword123!"
+}
+```
+
+Successful authentication returns:
+
+- user data;
+- access token;
+- refresh token.
+
+Invalid username and invalid password intentionally return the same response:
+
+```text
+401 Invalid credentials
+```
+
+---
+
+### Refresh Tokens
+
+```http
+POST /auth/refresh
+```
+
+The API verifies the refresh token and performs **token rotation**:
+
+1. verifies the JWT signature;
+2. verifies that the refresh token exists in the database;
+3. removes the old refresh token;
+4. creates and stores a new refresh token;
+5. returns a new access/refresh pair.
+
+---
+
+### Logout
+
+```http
+POST /auth/logout
+```
+
+Requires:
+
+```http
+Authorization: Bearer <access-token>
+```
+
+Successful response:
+
+```text
+204 No Content
+```
+
+---
+
+### Current User
+
+```http
+GET /auth/me
+```
+
+Requires:
+
+```http
+Authorization: Bearer <access-token>
+```
+
+Returns the current authenticated user without the password field.
+
+---
+
+## Announcements
+
+### List Announcements
+
+```http
+GET /announcements
+```
+
+Optional query parameters:
+
+| Parameter | Description |
+|---|---|
+| `page` | Page number |
+| `search` | Case-insensitive search in the title |
+| `sort` | `newest` or `oldest` |
+
+Pagination uses **10 announcements per page**.
+
+Example:
+
+```http
+GET /announcements?page=2&search=laptop&sort=newest
+```
+
+Response structure:
+
+```json
+{
+  "data": [],
+  "pagination": {
+    "total": 0,
+    "page": 2,
+    "totalPages": 0,
+    "perPage": 10
+  }
+}
+```
+
+---
+
+### Get One Announcement
+
+```http
+GET /announcements/:id
+```
+
+Public route.
+
+Returns:
+
+- announcement data;
+- optional `imageUrl`;
+- author information.
+
+---
+
+### Create Announcement
+
+```http
+POST /announcements
+```
+
+Protected route.
+
+Requires:
+
+```http
+Authorization: Bearer <access-token>
+```
+
+Content type:
+
+```text
+multipart/form-data
+```
+
+Fields:
+
+| Field | Required | Type |
+|---|---:|---|
+| `title` | Yes | text |
+| `description` | Yes | text |
+| `price` | Yes | number |
+| `category` | Yes | text |
+| `image` | No | image file |
+
+The announcement author is always derived from the authenticated JWT. A client cannot manually select another `userId`.
+
+---
+
+### Update Announcement
+
+```http
+PATCH /announcements/:id
+```
+
+Protected route.
+
+Supports partial updates through:
+
+```text
+multipart/form-data
+```
+
+Any announcement field may be updated, and a new optional image may be uploaded.
+
+Only the announcement owner can update it.
+
+Attempting to update another user's announcement returns:
+
+```text
+403 Access denied
+```
+
+---
+
+### Delete Announcement
+
+```http
+DELETE /announcements/:id
+```
+
+Protected route.
+
+Only the announcement owner can delete it.
+
+Successful response:
+
+```text
+204 No Content
+```
+
+---
+
+## Authentication Tokens
+
+The API uses two JWT types:
+
+| Token | Lifetime |
+|---|---:|
+| Access token | 15 minutes |
+| Refresh token | 7 days |
+
+The access token is sent in the request header:
+
+```http
+Authorization: Bearer <access-token>
+```
+
+Refresh tokens are stored in PostgreSQL and rotated when refreshed.
+
+---
+
+## Database Models
+
+### User
+
+Stores:
+
+- username;
+- email;
+- bcrypt password hash;
+- name;
+- registration date.
+
+### RefreshToken
+
+Stores:
+
+- refresh token;
+- associated user;
+- creation date.
+
+### Announcement
+
+Stores:
+
+- title;
+- description;
+- price;
+- category;
+- optional `imageUrl`;
+- author;
+- `createdAt`;
+- automatically updated `updatedAt`.
+
+---
+
+## Security Behavior
+
+### Helmet
+
+Helmet is enabled globally and adds security-related HTTP response headers.
+
+### CORS
+
+Allowed origins are configured through:
+
+```env
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+```
+
+Requests from browser origins outside this list receive:
+
+```text
+403
+```
+
+### Authentication Rate Limit
+
+All routes under `/auth` are limited to:
+
+```text
+10 requests / 15 minutes / IP
+```
+
+After the limit is reached:
+
+```json
+{
+  "message": "Too many requests, please try again later"
+}
+```
+
+The public announcements routes remain available because the rate limiter is scoped only to `/auth`.
+
+---
+
+## Logging
+
+Pino is used as the shared application logger.
+
+`pino-http` automatically records HTTP requests.
+
+The controllers explicitly log important application events:
+
+```text
+User registered
+User logged in
+Announcement created
+Announcement photo uploaded
+```
+
+---
+
+## Image Upload Flow
+
+```text
+Client
+  │
+  ▼
+Multer
+  │
+  ▼
+uploads/ temporary file
+  │
+  ▼
+Cloudinary
+  │
+  ├──► secure image URL → PostgreSQL imageUrl
+  │
+  └──► local temporary file deleted
+```
+
+The database does not store the binary image itself.
+
+---
+
+## OpenAPI / Swagger
+
+Interactive API documentation is available at:
+
+```text
+/api-docs
+```
+
+The OpenAPI specification documents:
+
+- all authentication routes;
+- all announcement routes;
+- Bearer authentication;
+- protected endpoints;
+- `multipart/form-data`;
+- binary image uploads;
+- optional `imageUrl`.
+
+---
 
 ## Tests
 
-The repository includes:
-
-```text
-tests/final_test.ps1
-```
-
-This is an end-to-end verification script for the completed API.
-
-It starts the application, runs the test suite, and stops the test server automatically.
-
-Run it from the project root:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tests\final_test.ps1
-```
-
-The script verifies:
-
-- Swagger `/api-docs` opens
-- registration returns `201`
-- password is not returned
-- access and refresh tokens are generated
-- duplicate registration returns `409`
-- invalid password returns `401`
-- nonexistent username returns the same `Invalid credentials` response
-- successful login
-- protected `/auth/me`
-- refresh-token rotation
-- old refresh token cannot be reused
-- authenticated announcement creation
-- author information in responses
-- public announcement list
-- pagination with 10 records per page
-- case-insensitive title search
-- newest/oldest sorting
-- announcement lookup by ID
-- `404` for missing announcement
-- rejection of an empty `PATCH`
-- owner update
-- `403` when another user attempts to update
-- `403` when another user attempts to delete
-- owner deletion returns `204`
-- logout returns `204`
-- refresh token becomes invalid after logout
-
-Successful execution ends with:
-
-```text
-ALL FINAL TESTS PASSED
-TypeScript + Auth + CRUD + Pagination + Search + Sort + Ownership + Swagger verified.
-```
-
-The project also passes the TypeScript compiler check:
+Run:
 
 ```bash
-npx tsc --noEmit
+npm run test:run
 ```
 
-## Submission Notes
+The included Vitest suite contains tests for:
 
-The repository should contain source code, Prisma schema and migrations, the test script, README, and project configuration files.
+1. bcrypt password hashing;
+2. correct and incorrect password verification;
+3. access and refresh JWT lifetime/claims.
 
-Do **not** submit:
+---
 
-- `.env`
-- `node_modules/`
-- local secrets or passwords
+## Full Production Verification
 
-The course submission requires both:
+Run:
 
-1. a GitHub repository link;
-2. uploaded project files or an archive.
+```bash
+npm run verify:production
+```
 
-## License / Academic Work
+The verifier starts the Express application on a temporary local port and validates the production requirements, including:
 
-This repository is an educational project completed as part of the Neoversity coursework.
+- Swagger;
+- Helmet;
+- allowed CORS origin;
+- rejected CORS origin;
+- registration;
+- login;
+- announcement creation without an image;
+- real Cloudinary upload;
+- persistence of `imageUrl`;
+- deletion of the temporary local image;
+- Prisma schema and migration;
+- OpenAPI multipart documentation;
+- Pino logging configuration;
+- exact authentication rate limiting;
+- public announcement availability after the auth rate limit is reached.
 
-**Author: Fedor Stoietskyi**
+Successful completion ends with:
+
+```text
+ALL PRODUCTION HOMEWORK CHECKS PASSED
+```
+
+---
+
+## Verification Status
+
+The rebuilt project has been verified locally with:
+
+- valid Prisma schema;
+- Prisma Client 7.7.0 generation;
+- PostgreSQL migration status up to date;
+- successful TypeScript compilation;
+- all Vitest tests passing;
+- successful live Cloudinary image upload;
+- successful integrated production verification.
+
+---
+
+## Git / Submission Notes
+
+Before submission:
+
+```bash
+git status
+```
+
+Confirm that `.env` is **not** staged.
+
+Recommended files to commit include:
+
+```text
+app.ts
+src/
+prisma/
+scripts/
+tests/
+uploads/.gitkeep
+README.md
+.env.example
+.gitignore
+package.json
+package-lock.json
+tsconfig.json
+vitest.config.ts
+prisma.config.ts
+```
+
+Do not commit:
+
+```text
+.env
+node_modules/
+generated/
+temporary upload files
+local repair/rebuild scripts
+```
+
+---
+
+## Author
+
+**Fedor Stoietskyi**

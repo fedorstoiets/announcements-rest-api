@@ -1,22 +1,36 @@
-﻿import type { Request, Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../../prisma/client.ts";
+import logger from "../logger.ts";
+import {
+  deleteLocalUpload,
+  uploadImageToCloudinary,
+} from "../middleware/upload.ts";
 
-const userSelect = {
+const authorSelect = {
   id: true,
   username: true,
   email: true,
   name: true,
 } as const;
 
-export const getAnnouncements = async (req: Request, res: Response) => {
+function announcementId(req: Request): number {
+  return Number(req.params.id);
+}
+
+async function cleanupRequestFile(req: Request): Promise<void> {
+  if (req.file?.path) {
+    await deleteLocalUpload(req.file.path);
+  }
+}
+
+export async function listAnnouncements(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const page = Math.max(1, Number(req.query.page ?? 1));
   const search =
     typeof req.query.search === "string" ? req.query.search.trim() : "";
-
   const sort = req.query.sort === "oldest" ? "oldest" : "newest";
-
-  const page =
-    typeof req.query.page === "string" ? Number(req.query.page) : 1;
-
   const perPage = 10;
 
   const where = search
@@ -28,26 +42,26 @@ export const getAnnouncements = async (req: Request, res: Response) => {
       }
     : {};
 
-  const [data, total] = await prisma.$transaction([
-    prisma.announcement.findMany({
-      where,
-      include: {
-        user: {
-          select: userSelect,
-        },
-      },
-      orderBy: {
-        createdAt: sort === "oldest" ? "asc" : "desc",
-      },
-      skip: (page - 1) * perPage,
-      take: perPage,
-    }),
+  const [total, data] = await prisma.$transaction([
     prisma.announcement.count({
       where,
     }),
+    prisma.announcement.findMany({
+      where,
+      skip: (page - 1) * perPage,
+      take: perPage,
+      orderBy: {
+        createdAt: sort === "oldest" ? "asc" : "desc",
+      },
+      include: {
+        user: {
+          select: authorSelect,
+        },
+      },
+    }),
   ]);
 
-  return res.status(200).json({
+  res.status(200).json({
     data,
     pagination: {
       total,
@@ -56,65 +70,85 @@ export const getAnnouncements = async (req: Request, res: Response) => {
       perPage,
     },
   });
-};
+}
 
-export const getAnnouncementById = async (
+export async function getAnnouncement(
   req: Request,
   res: Response,
-) => {
-  const id = Number(req.params.id);
-
+): Promise<void> {
   const announcement = await prisma.announcement.findUnique({
     where: {
-      id,
+      id: announcementId(req),
     },
     include: {
       user: {
-        select: userSelect,
+        select: authorSelect,
       },
     },
   });
 
   if (!announcement) {
-    return res.status(404).json({
+    res.status(404).json({
       message: "Announcement not found",
     });
+    return;
   }
 
-  return res.status(200).json(announcement);
-};
+  res.status(200).json(announcement);
+}
 
-export const createAnnouncement = async (
+export async function createAnnouncement(
   req: Request,
   res: Response,
-) => {
-  const { title, description, price, category } = req.body;
+): Promise<void> {
+  let imageUrl: string | null = null;
+
+  if (req.file) {
+    imageUrl = await uploadImageToCloudinary(req.file.path);
+
+    logger.info(
+      {
+        userId: req.user!.sub,
+        imageUrl,
+      },
+      "Announcement photo uploaded",
+    );
+  }
 
   const announcement = await prisma.announcement.create({
     data: {
-      title,
-      description,
-      price,
-      category,
-      userId: req.user.sub,
+      title: req.body.title,
+      description: req.body.description,
+      price: req.body.price,
+      category: req.body.category,
+      imageUrl,
+      userId: req.user!.sub,
     },
     include: {
       user: {
-        select: userSelect,
+        select: authorSelect,
       },
     },
   });
 
-  return res.status(201).json(announcement);
-};
+  logger.info(
+    {
+      announcementId: announcement.id,
+      userId: req.user!.sub,
+    },
+    "Announcement created",
+  );
 
-export const updateAnnouncement = async (
+  res.status(201).json(announcement);
+}
+
+export async function updateAnnouncement(
   req: Request,
   res: Response,
-) => {
-  const id = Number(req.params.id);
+): Promise<void> {
+  const id = announcementId(req);
 
-  const existingAnnouncement = await prisma.announcement.findUnique({
+  const existing = await prisma.announcement.findUnique({
     where: {
       id,
     },
@@ -124,59 +158,91 @@ export const updateAnnouncement = async (
     },
   });
 
-  if (!existingAnnouncement) {
-    return res.status(404).json({
+  if (!existing) {
+    await cleanupRequestFile(req);
+    res.status(404).json({
       message: "Announcement not found",
     });
+    return;
   }
 
-  if (existingAnnouncement.userId !== req.user.sub) {
-    return res.status(403).json({
+  if (existing.userId !== req.user!.sub) {
+    await cleanupRequestFile(req);
+    res.status(403).json({
       message: "Access denied",
     });
+    return;
+  }
+
+  const hasBodyChanges = Object.keys(req.body).length > 0;
+
+  if (!hasBodyChanges && !req.file) {
+    res.status(400).json({
+      message: "At least one field or image is required",
+    });
+    return;
+  }
+
+  let imageUrl: string | undefined;
+
+  if (req.file) {
+    imageUrl = await uploadImageToCloudinary(req.file.path);
+
+    logger.info(
+      {
+        announcementId: id,
+        userId: req.user!.sub,
+        imageUrl,
+      },
+      "Announcement photo uploaded",
+    );
   }
 
   const announcement = await prisma.announcement.update({
     where: {
       id,
     },
-    data: req.body,
+    data: {
+      ...req.body,
+      ...(imageUrl ? { imageUrl } : {}),
+    },
     include: {
       user: {
-        select: userSelect,
+        select: authorSelect,
       },
     },
   });
 
-  return res.status(200).json(announcement);
-};
+  res.status(200).json(announcement);
+}
 
-export const deleteAnnouncement = async (
+export async function deleteAnnouncement(
   req: Request,
   res: Response,
-) => {
-  const id = Number(req.params.id);
+): Promise<void> {
+  const id = announcementId(req);
 
-  const existingAnnouncement = await prisma.announcement.findUnique({
+  const existing = await prisma.announcement.findUnique({
     where: {
       id,
     },
     select: {
-      id: true,
       userId: true,
     },
   });
 
-  if (!existingAnnouncement) {
-    return res.status(404).json({
+  if (!existing) {
+    res.status(404).json({
       message: "Announcement not found",
     });
+    return;
   }
 
-  if (existingAnnouncement.userId !== req.user.sub) {
-    return res.status(403).json({
+  if (existing.userId !== req.user!.sub) {
+    res.status(403).json({
       message: "Access denied",
     });
+    return;
   }
 
   await prisma.announcement.delete({
@@ -185,5 +251,5 @@ export const deleteAnnouncement = async (
     },
   });
 
-  return res.status(204).end();
-};
+  res.status(204).end();
+}

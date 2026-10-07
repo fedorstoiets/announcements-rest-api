@@ -1,12 +1,13 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import {
-  getAnnouncements,
-  getAnnouncementById,
   createAnnouncement,
-  updateAnnouncement,
   deleteAnnouncement,
+  getAnnouncement,
+  listAnnouncements,
+  updateAnnouncement,
 } from "../controllers/announcements.controller.ts";
 import { authenticate } from "../middleware/authenticate.ts";
+import { upload } from "../middleware/upload.ts";
 import {
   validateBody,
   validateParams,
@@ -14,24 +15,29 @@ import {
 } from "../middleware/validate.ts";
 import {
   announcementIdSchema,
-  announcementsQuerySchema,
+  announcementListQuerySchema,
   createAnnouncementSchema,
   updateAnnouncementSchema,
 } from "../validators/announcements.validator.ts";
 
 const router = Router();
 
-router.get("/", validateQuery(announcementsQuerySchema), getAnnouncements);
+router.get(
+  "/",
+  validateQuery(announcementListQuerySchema),
+  listAnnouncements,
+);
 
 router.get(
   "/:id",
   validateParams(announcementIdSchema),
-  getAnnouncementById,
+  getAnnouncement,
 );
 
 router.post(
   "/",
   authenticate,
+  upload.single("image"),
   validateBody(createAnnouncementSchema),
   createAnnouncement,
 );
@@ -40,6 +46,7 @@ router.patch(
   "/:id",
   authenticate,
   validateParams(announcementIdSchema),
+  upload.single("image"),
   validateBody(updateAnnouncementSchema),
   updateAnnouncement,
 );
